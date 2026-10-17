@@ -1,105 +1,201 @@
-#  Lab 3.2 : Ingress avec Traefik sur Kubernetes (K3s)
+<div align="center">
 
-![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.36.5-blue?logo=kubernetes)
-![K3s](https://img.shields.io/badge/K3s-Lightweight-orange?logo=rancher)
-![Traefik](https://img.shields.io/badge/Ingress-Traefik-24A1C1?logo=traefik)
+# Lab 3.2 : Ingress avec Traefik sur Kubernetes (K3s)
 
-##  Description du projet
-Ce dépôt contient le compte rendu complet du **Lab 3.2**. L'objectif est de remplacer l'exposition par ports (NodePort/LoadBalancer) vue au Lab 3.1 par un **point d'entrée unique** via un **Ingress Controller (Traefik)**. 
+Point d'entrée unique, routage par nom d'hôte et par chemin, diagnostic des erreurs
 
-Nous avons déployé deux applications (Nginx et Podinfo) et configuré le routage par **nom d'hôte** et par **chemin**, tout en testant les erreurs de routage.
+![Kubernetes](https://img.shields.io/badge/Kubernetes-K3s-326CE5?logo=kubernetes&logoColor=white)
+![K3s](https://img.shields.io/badge/K3s-Lightweight-FFC61C?logo=rancher&logoColor=black)
+![Traefik](https://img.shields.io/badge/Ingress-Traefik-24A1C1?logo=traefikproxy&logoColor=white)
+![Nginx](https://img.shields.io/badge/Frontend-Nginx-009639?logo=nginx&logoColor=white)
+![Status](https://img.shields.io/badge/Statut-Termin%C3%A9-success)
 
----
-
-##  Environnement de travail
-- **Cluster** : K3s v1.36.5 (Traefik inclus par défaut)
-- **Topologie** : 1 Master (`192.168.56.20`) + 2 Workers (`192.168.56.31`, `192.168.56.32`)
-- **Ingress Controller** : Traefik (IngressClass `traefik`)
+</div>
 
 ---
 
-##  Étapes réalisées et Résultats
+## Table des matières
+
+1. [Description du projet](#1-description-du-projet)
+2. [Environnement de travail](#2-environnement-de-travail)
+3. [Structure du dépôt](#3-structure-du-dépôt)
+4. [Étapes réalisées et résultats](#4-étapes-réalisées-et-résultats)
+5. [Questions de réflexion](#5-questions-de-réflexion)
+6. [Auteur](#6-auteur)
+
+---
+
+## 1. Description du projet
+
+Ce dépôt contient le compte rendu complet du **Lab 3.2**. L'objectif est de remplacer l'exposition par ports (NodePort / LoadBalancer) vue au Lab 3.1 par un **point d'entrée unique** via un Ingress Controller (**Traefik**).
+
+Deux applications sont déployées (**Nginx** et **Podinfo**). Le routage est configuré par nom d'hôte puis par chemin, et les différents types d'erreurs de routage sont testés.
+
+```mermaid
+flowchart LR
+    C([Client]) -->|:80 / :443| T{{Traefik<br/>Ingress Controller}}
+    T -->|web.k3s.local| W[web-svc]
+    T -->|api.k3s.local| A[api-svc]
+    T -->|site.k3s.local /| W
+    T -->|site.k3s.local /version| A
+    W --> W1[Nginx x2]
+    A --> A1[Podinfo x3]
+```
+
+## 2. Environnement de travail
+
+| Composant | Détails |
+|-----------|---------|
+| Cluster | K3s v1.36.5 (Traefik inclus par défaut) |
+| Ingress Controller | Traefik (IngressClass `traefik`) |
+| Namespace | `tp-k8s` |
+
+**Topologie**
+
+| Nœud | Rôle | Adresse IP |
+|------|------|------------|
+| Master | control-plane | `192.168.56.20` |
+| Worker 1 | worker | `192.168.56.31` |
+| Worker 2 | worker | `192.168.56.32` |
+
+**Applications**
+
+| Application | Image | Réplicas | Service |
+|-------------|-------|:--------:|---------|
+| `web` | Nginx | 2 | `web-svc` |
+| `api` | Podinfo | 3 | `api-svc` |
+
+## 3. Structure du dépôt
+
+```text
+.
+├── README.md                       # Documentation du lab
+├── 01_apps_running.png             # Captures d'écran (preuves d'exécution)
+├── 02_traefik_ingressclass.png
+├── 03_ingress_hotes.png
+├── 04_test_host_header.png
+├── 05_test_navigateur.png
+├── 06_routage_chemin.png
+├── 07_erreurs.png
+└── 08_nettoyage_lab32.png
+```
+
+## 4. Étapes réalisées et résultats
 
 ### Étape 1 : Déployer les deux applications
-Création d'un namespace `tp-k8s` et déploiement de deux applications :
-- **web** : Nginx (2 réplicas)
-- **api** : Podinfo (3 réplicas)
+
+Création du namespace `tp-k8s` et déploiement de deux applications : `web` (Nginx, 2 réplicas) et `api` (Podinfo, 3 réplicas).
 
 ```bash
 kubectl apply -f apps.yaml
 kubectl get pods
 kubectl get endpoints
-✅ Résultat : 5 Pods Running (2 web, 3 api). Les endpoints web-svc (2 IPs) et api-svc (3 IPs) sont bien peuplés.
+```
 
-https://./captures_lab32/01_apps_running.png
+> **Résultat** : 5 Pods `Running` (2 `web`, 3 `api`). Les endpoints `web-svc` (2 IP) et `api-svc` (3 IP) sont bien renseignés.
 
-Étape 2 : Repérer Traefik
+![Applications en cours d'exécution](01_apps_running.png)
+
+---
+
+### Étape 2 : Repérer Traefik
+
 Vérification que l'Ingress Controller est opérationnel.
 
-bash
+```bash
 kubectl get pods -n kube-system | grep traefik
 kubectl get service traefik -n kube-system
 kubectl get ingressclass
-✅ Résultat : Le Pod traefik est Running. Le Service traefik est de type LoadBalancer avec les ports 80 et 443 exposés sur toutes les IPs des nœuds. L'IngressClass se nomme traefik.
+```
 
-https://./captures_lab32/02_traefik_ingressclass.png
+> **Résultat** : le Pod `traefik` est `Running`. Le Service `traefik` est de type `LoadBalancer`, avec les ports 80 et 443 exposés sur toutes les IP des nœuds. L'IngressClass se nomme `traefik`.
 
-Étape 3 : Créer un Ingress par nom d'hôte
-Création d'un Ingress qui route web.k3s.local vers web-svc et api.k3s.local vers api-svc.
+![Traefik et IngressClass](02_traefik_ingressclass.png)
 
-bash
+---
+
+### Étape 3 : Créer un Ingress par nom d'hôte
+
+Création d'un Ingress qui route `web.k3s.local` vers `web-svc` et `api.k3s.local` vers `api-svc`.
+
+```bash
 kubectl apply -f ingress-hotes.yaml
 kubectl get ingress
 kubectl describe ingress apps-ingress
-✅ Résultat : L'Ingress apps-ingress est créé. L'ADDRESS est remplie (IP du nœud). Les règles pointent vers les bons backends.
+```
 
-https://./captures_lab32/03_ingress_hotes.png
+> **Résultat** : l'Ingress `apps-ingress` est créé. L'`ADDRESS` est renseignée (IP du nœud) et les règles pointent vers les bons backends.
 
-Étape 4 : Tester avec l'en-tête Host
-Test depuis le terminal (VM) en simulant le nom de domaine.
+![Ingress par nom d'hôte](03_ingress_hotes.png)
 
-bash
+---
+
+### Étape 4 : Tester avec l'en-tête Host
+
+Test depuis le terminal de la VM, en simulant le nom de domaine.
+
+```bash
 curl -H "Host: web.k3s.local" http://192.168.56.20
 curl -H "Host: api.k3s.local" http://192.168.56.20
-✅ Résultat : web.k3s.local renvoie la page HTML de Nginx. api.k3s.local renvoie le JSON de Podinfo.
+```
 
-https://./captures_lab32/04_test_host_header.png
+> **Résultat** : `web.k3s.local` renvoie la page HTML de Nginx. `api.k3s.local` renvoie le JSON de Podinfo.
 
-Étape 5 : Utiliser de vrais noms d'hôte (Windows)
-Configuration du fichier hosts de Windows (C:\Windows\System32\drivers\etc\hosts) pour associer 192.168.56.20 aux noms web.k3s.local et api.k3s.local.
+![Test avec l'en-tête Host](04_test_host_header.png)
 
-cmd
+---
+
+### Étape 5 : Utiliser de vrais noms d'hôte (Windows)
+
+Ajout de la ligne suivante dans `C:\Windows\System32\drivers\etc\hosts` (éditeur lancé en administrateur) :
+
+```text
+192.168.56.20  web.k3s.local api.k3s.local
+```
+
+```cmd
 curl.exe http://web.k3s.local
 curl.exe http://api.k3s.local
-✅ Résultat : Le navigateur et curl.exe sur Windows affichent bien les applications sans avoir besoin de l'en-tête Host.
+```
 
-https://./captures_lab32/05_test_navigateur.png
+> **Résultat** : le navigateur et `curl.exe` affichent les applications sans avoir besoin de l'en-tête `Host`.
 
-Étape 6 : Router par chemin
-Création d'un Ingress site-ingress qui utilise le même hôte (site.k3s.local) mais route selon le chemin :
+![Test depuis le navigateur](05_test_navigateur.png)
 
-/ → web-svc (Nginx)
+---
 
-/version → api-svc (Podinfo)
+### Étape 6 : Router par chemin
 
-bash
+Création d'un Ingress `site-ingress` qui utilise le même hôte (`site.k3s.local`) mais route selon le chemin :
+
+| Chemin | Service cible |
+|--------|---------------|
+| `/` | `web-svc` (Nginx) |
+| `/version` | `api-svc` (Podinfo) |
+
+```bash
 kubectl apply -f ingress-chemins.yaml
 curl -H "Host: site.k3s.local" http://192.168.56.20/
 curl -H "Host: site.k3s.local" http://192.168.56.20/version
-✅ Résultat : / renvoie Nginx, /version renvoie le JSON de Podinfo (routage par préfixe le plus long).
+```
 
-https://./captures_lab32/06_routage_chemin.png
+> **Résultat** : `/` renvoie Nginx et `/version` renvoie le JSON de Podinfo (routage par préfixe le plus long).
 
-Étape 7 : Distinguer les erreurs
-Test de 3 scénarios d'erreur :
+![Routage par chemin](06_routage_chemin.png)
 
-Hôte inconnu → Erreur de Traefik (404 page not found).
+---
 
-Chemin inexistant sur Nginx → Erreur de Nginx (page HTML 404 Not Found).
+### Étape 7 : Distinguer les erreurs
 
-Service sans Pod → Erreur de Traefik (503 Service Unavailable).
+Test de trois scénarios d'erreur :
 
-bash
+| Scénario | Origine de l'erreur | Réponse |
+|----------|---------------------|---------|
+| Hôte inconnu | Traefik | `404 page not found` (texte brut) |
+| Chemin inexistant sur Nginx | Nginx | Page HTML `404 Not Found` |
+| Service sans Pod | Traefik | `503 Service Unavailable` |
+
+```bash
 # a) Hôte inconnu
 curl -i -H "Host: inconnu.k3s.local" http://192.168.56.20
 
@@ -110,46 +206,63 @@ curl -i -H "Host: web.k3s.local" http://192.168.56.20/nexiste-pas
 kubectl scale deployment api --replicas=0
 curl -i -H "Host: api.k3s.local" http://192.168.56.20
 kubectl scale deployment api --replicas=3
-✅ Résultat : On distingue bien les 3 erreurs et on sait si le problème vient du routage (Traefik) ou de l'application (Nginx/API).
+```
 
-https://./captures_lab32/07_erreurs.png
+> **Résultat** : on distingue les trois erreurs et on identifie si le problème vient du routage (Traefik) ou de l'application (Nginx / API).
 
-Étape 8 : Nettoyage
-bash
+![Les trois types d'erreurs](07_erreurs.png)
+
+---
+
+### Étape 8 : Nettoyage
+
+```bash
 kubectl delete namespace tp-k8s
 kubectl config set-context --current --namespace=default
-✅ Résultat : L'environnement est propre.
+```
 
-https://./captures_lab32/08_nettoyage_lab32.png
+> **Résultat** : l'environnement est propre.
 
-🧠 Réponses aux questions de réflexion
-1. Pourquoi préfère-t-on un Ingress à deux Services de type NodePort pour des applications web ?
+![Nettoyage de l'environnement](08_nettoyage_lab32.png)
+
+## 5. Questions de réflexion
+
+<details>
+<summary><strong>1. Pourquoi préférer un Ingress à deux Services NodePort pour des applications web ?</strong></summary>
 
 L'Ingress offre un point d'entrée unique (ports 80 et 443) avec des noms d'hôte lisibles et du routage par chemin. Les NodePort multiplient les ports élevés, sans routage par nom ni par chemin.
+</details>
 
-2. Quel est le rôle de l'objet Ingress, et celui de Traefik ?
+<details>
+<summary><strong>2. Quel est le rôle de l'objet Ingress, et celui de Traefik ?</strong></summary>
 
-L'Ingress décrit les règles de routage. Traefik, l'Ingress controller, les lit et route réellement le trafic. Sans controller, l'Ingress n'a aucun effet.
+L'Ingress **décrit** les règles de routage. Traefik, l'Ingress Controller, les **lit et applique** réellement en routant le trafic. Sans controller, l'Ingress n'a aucun effet.
+</details>
 
-3. Pourquoi l'application répond-elle sur l'adresse de n'importe quel nœud ?
+<details>
+<summary><strong>3. Pourquoi l'application répond-elle sur l'adresse de n'importe quel nœud ?</strong></summary>
 
-Traefik est exposé par un Service LoadBalancer (ServiceLB), qui ouvre les ports 80 et 443 sur chaque nœud. Kube-proxy redirige le trafic vers les pods Traefik.
+Traefik est exposé par un Service `LoadBalancer` (ServiceLB) qui ouvre les ports 80 et 443 sur chaque nœud. `kube-proxy` redirige ensuite le trafic vers les Pods Traefik.
+</details>
 
-4. Une règle /version et une règle / existent pour le même hôte. Laquelle s'applique à /version ?
+<details>
+<summary><strong>4. Une règle <code>/version</code> et une règle <code>/</code> existent pour le même hôte. Laquelle s'applique à <code>/version</code> ?</strong></summary>
 
-La règle /version, car la correspondance la plus spécifique (le préfixe le plus long) l'emporte.
+La règle `/version`, car la correspondance la plus spécifique (le préfixe le plus long) l'emporte.
+</details>
 
-5. Comment reconnaître qu'une réponse 404 vient de Traefik plutôt que de l'application ?
+<details>
+<summary><strong>5. Comment reconnaître qu'une réponse 404 vient de Traefik plutôt que de l'application ?</strong></summary>
 
-En observant le contenu de la réponse : celui de Traefik est un message court (404 page not found en texte brut), celui de nginx est une page HTML. Si l'erreur est celle de Traefik, aucune règle n'a correspondu : vérifier l'hôte, le chemin et l'Ingress.
+Par le contenu de la réponse : celle de Traefik est un message court en texte brut (`404 page not found`), alors que celle de Nginx est une page HTML. Si l'erreur vient de Traefik, aucune règle n'a correspondu : il faut vérifier l'hôte, le chemin et l'Ingress.
+</details>
 
-👨‍💻 Auteur
-Nom : [Dabbech]
+## 6. Auteur
 
-Prénom : [Narjess]
-
-Classe : [Ta Classe]
-
-GitHub : @Narjess805
-
-Date : Octobre 2026
+| | |
+|---|---|
+| **Nom** | Dabbech |
+| **Prénom** | Narjess |
+| **Classe** | M2 DevOps |
+| **GitHub** | [@Narjess805](https://github.com/Narjess805) |
+| **Date** | Octobre 2026 |
