@@ -70,14 +70,19 @@ flowchart LR
 ```text
 .
 ├── README.md                       # Documentation du lab
-├── 01_apps_running.png             # Captures d'écran (preuves d'exécution)
-├── 02_traefik_ingressclass.png
-├── 03_ingress_hotes.png
-├── 04_test_host_header.png
-├── 05_test_navigateur.png
-├── 06_routage_chemin.png
-├── 07_erreurs.png
-└── 08_nettoyage_lab32.png
+├── yaml/                           # Manifestes Kubernetes
+│   ├── apps.yaml                   # Deployments et Services web (Nginx) et api (Podinfo)
+│   ├── ingress-hotes.yaml          # Ingress par nom d'hôte
+│   └── ingress-chemins.yaml        # Ingress par chemin
+└── captures/                       # Captures d'écran (preuves d'exécution)
+    ├── 01_apps_running.png
+    ├── 02_traefik_ingressclass.png
+    ├── 03_ingress_hotes.png
+    ├── 04_test_host_header.png
+    ├── 05_test_navigateur.png
+    ├── 06_routage_chemin.png
+    ├── 07_erreurs.png
+    └── 08_nettoyage_lab32.png
 ```
 
 ## 4. Étapes réalisées et résultats
@@ -87,14 +92,14 @@ flowchart LR
 Création du namespace `tp-k8s` et déploiement de deux applications : `web` (Nginx, 2 réplicas) et `api` (Podinfo, 3 réplicas).
 
 ```bash
-kubectl apply -f apps.yaml
+kubectl apply -f yaml/apps.yaml
 kubectl get pods
 kubectl get endpoints
 ```
 
 > **Résultat** : 5 Pods `Running` (2 `web`, 3 `api`). Les endpoints `web-svc` (2 IP) et `api-svc` (3 IP) sont bien renseignés.
 
-![Applications en cours d'exécution](01_apps_running.png)
+![Applications en cours d'exécution](captures/01_apps_running.png)
 
 ---
 
@@ -110,7 +115,7 @@ kubectl get ingressclass
 
 > **Résultat** : le Pod `traefik` est `Running`. Le Service `traefik` est de type `LoadBalancer`, avec les ports 80 et 443 exposés sur toutes les IP des nœuds. L'IngressClass se nomme `traefik`.
 
-![Traefik et IngressClass](02_traefik_ingressclass.png)
+![Traefik et IngressClass](captures/02_traefik_ingressclass.png)
 
 ---
 
@@ -119,14 +124,14 @@ kubectl get ingressclass
 Création d'un Ingress qui route `web.k3s.local` vers `web-svc` et `api.k3s.local` vers `api-svc`.
 
 ```bash
-kubectl apply -f ingress-hotes.yaml
+kubectl apply -f yaml/ingress-hotes.yaml
 kubectl get ingress
 kubectl describe ingress apps-ingress
 ```
 
 > **Résultat** : l'Ingress `apps-ingress` est créé. L'`ADDRESS` est renseignée (IP du nœud) et les règles pointent vers les bons backends.
 
-![Ingress par nom d'hôte](03_ingress_hotes.png)
+![Ingress par nom d'hôte](captures/03_ingress_hotes.png)
 
 ---
 
@@ -141,7 +146,7 @@ curl -H "Host: api.k3s.local" http://192.168.56.20
 
 > **Résultat** : `web.k3s.local` renvoie la page HTML de Nginx. `api.k3s.local` renvoie le JSON de Podinfo.
 
-![Test avec l'en-tête Host](04_test_host_header.png)
+![Test avec l'en-tête Host](captures/04_test_host_header.png)
 
 ---
 
@@ -160,7 +165,7 @@ curl.exe http://api.k3s.local
 
 > **Résultat** : le navigateur et `curl.exe` affichent les applications sans avoir besoin de l'en-tête `Host`.
 
-![Test depuis le navigateur](05_test_navigateur.png)
+![Test depuis le navigateur](captures/05_test_navigateur.png)
 
 ---
 
@@ -174,14 +179,14 @@ Création d'un Ingress `site-ingress` qui utilise le même hôte (`site.k3s.loca
 | `/version` | `api-svc` (Podinfo) |
 
 ```bash
-kubectl apply -f ingress-chemins.yaml
+kubectl apply -f yaml/ingress-chemins.yaml
 curl -H "Host: site.k3s.local" http://192.168.56.20/
 curl -H "Host: site.k3s.local" http://192.168.56.20/version
 ```
 
 > **Résultat** : `/` renvoie Nginx et `/version` renvoie le JSON de Podinfo (routage par préfixe le plus long).
 
-![Routage par chemin](06_routage_chemin.png)
+![Routage par chemin](captures/06_routage_chemin.png)
 
 ---
 
@@ -210,7 +215,7 @@ kubectl scale deployment api --replicas=3
 
 > **Résultat** : on distingue les trois erreurs et on identifie si le problème vient du routage (Traefik) ou de l'application (Nginx / API).
 
-![Les trois types d'erreurs](07_erreurs.png)
+![Les trois types d'erreurs](captures/07_erreurs.png)
 
 ---
 
@@ -223,7 +228,7 @@ kubectl config set-context --current --namespace=default
 
 > **Résultat** : l'environnement est propre.
 
-![Nettoyage de l'environnement](08_nettoyage_lab32.png)
+![Nettoyage de l'environnement](captures/08_nettoyage_lab32.png)
 
 ## 5. Questions de réflexion
 
